@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -37,3 +40,14 @@ jobs:
         with:
           name: autoclick-pesca-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Publica o APK numa página de download (aba Releases), sem precisar entrar em Actions.
+      - name: Publicar APK em Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk autoclick-pesca.apk
+          gh release create "apk-${{ github.run_number }}" autoclick-pesca.apk \
+            --title "Autoclick Pesca (build ${{ github.run_number }})" \
+            --notes "APK de debug gerado automaticamente. Instale no Android 11 ou superior." \
+            --latest
