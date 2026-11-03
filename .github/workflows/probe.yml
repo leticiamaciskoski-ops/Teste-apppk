@@ -1,6 +1,6 @@
 name: Probe API Roblox
 
-# Teste descartável: consulta a API publica do Roblox para confirmar IDs e ordenacao.
+# Teste descartavel: consulta a API publica do Roblox para confirmar IDs e ordenacao.
 on:
   push:
     paths:
@@ -14,24 +14,21 @@ jobs:
       - name: Consultas
         run: |
           UA="Mozilla/5.0 (Linux; Android 13) AutoclickPescaProbe"
-          get() { curl -sS -m 20 -A "$UA" -w "\n[HTTP %{http_code}]\n" "$1"; }
-          for ID in 10563114921 7861158392; do
-            echo "=================== ID $ID"
-            echo "--- place -> universe"
-            get "https://apis.roblox.com/universes/v1/places/$ID/universe"
-            U=$(curl -sS -m 20 -A "$UA" "https://apis.roblox.com/universes/v1/places/$ID/universe" | jq -r '.universeId // empty' 2>/dev/null)
-            echo "universeId=$U"
-            if [ -n "$U" ]; then
-              echo "--- games?universeIds=$U"
-              get "https://games.roblox.com/v1/games?universeIds=$U" | head -c 900
-            fi
-            echo "--- ID como universe"
-            get "https://games.roblox.com/v1/games?universeIds=$ID" | head -c 900
-          done
+          PLACE=107778070777162
+          echo "=== place -> universe"
+          curl -sS -m 20 -A "$UA" -w "\n[HTTP %{http_code}]\n" "https://apis.roblox.com/universes/v1/places/$PLACE/universe"
           for SORT in Asc Desc; do
-            echo "=================== servers 10563114921 sortOrder=$SORT"
-            curl -sS -m 25 -A "$UA" -w "\n[HTTP %{http_code}]\n" "https://games.roblox.com/v1/games/10563114921/servers/Public?sortOrder=$SORT&limit=100&excludeFullGames=true" -o /tmp/s_$SORT.json
-            tail -c 200 /tmp/s_$SORT.json | head -c 200; echo
-            jq -c '{n:(.data|length), playing:[.data[]?.playing], max:[.data[]?.maxPlayers]|unique, next:(.nextPageCursor!=null), sample:(.data[0]|{id,playing,maxPlayers})}' /tmp/s_$SORT.json 2>&1 | head -c 1500
+            echo "=================== servers $PLACE sortOrder=$SORT"
+            curl -sS -m 25 -A "$UA" -w "[HTTP %{http_code}]\n" "https://games.roblox.com/v1/games/$PLACE/servers/Public?sortOrder=$SORT&limit=100&excludeFullGames=true" -o /tmp/s_$SORT.json
+            head -c 300 /tmp/s_$SORT.json; echo
+            jq -c '{n:(.data|length), playing:[.data[]?.playing], max:([.data[]?.maxPlayers]|unique), next:(.nextPageCursor!=null), sample:(.data[0]|{id,playing,maxPlayers})}' /tmp/s_$SORT.json 2>&1 | head -c 1800
             sleep 2
           done
+          echo "=================== Asc pagina 2"
+          CUR=$(jq -r '.nextPageCursor // empty' /tmp/s_Asc.json)
+          if [ -n "$CUR" ]; then
+            curl -sS -m 25 -A "$UA" -w "[HTTP %{http_code}]\n" -G "https://games.roblox.com/v1/games/$PLACE/servers/Public" --data-urlencode "sortOrder=Asc" --data-urlencode "limit=100" --data-urlencode "excludeFullGames=true" --data-urlencode "cursor=$CUR" -o /tmp/s_Asc2.json
+            jq -c '{n:(.data|length), playing:[.data[]?.playing], next:(.nextPageCursor!=null)}' /tmp/s_Asc2.json 2>&1 | head -c 1500
+          fi
+          echo "=================== rate limit headers"
+          curl -sS -m 25 -A "$UA" -D - -o /dev/null "https://games.roblox.com/v1/games/$PLACE/servers/Public?sortOrder=Asc&limit=10" | grep -iE "^HTTP|ratelimit|retry-after|x-ratelimit" || true
