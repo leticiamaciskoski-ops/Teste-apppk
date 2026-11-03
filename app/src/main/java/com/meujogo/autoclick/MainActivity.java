@@ -3,6 +3,7 @@ package com.meujogo.autoclick;
 import android.accessibilityservice.GestureDescription;
 import android.app.Activity;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
@@ -15,6 +16,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONException;
+
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -24,6 +28,10 @@ public class MainActivity extends Activity {
     private final Map<String, EditText> fields = new LinkedHashMap<>();
     private TextView tvService;
     private TextView tvEstimate;
+    private TextView tvGame;
+    private TextView tvHop;
+    private TextView tvOverlay;
+    private EditText etGame;
     private Config cfg;
 
     @Override
@@ -82,6 +90,52 @@ public class MainActivity extends Activity {
 
         tvEstimate = text("", 13, false);
         root.addView(tvEstimate);
+        root.addView(text("Server hop (Roblox)", 16, true));
+        root.addView(text("Troca de servidor direto pelo app (ou pelo painel flutuante), escolhendo servidores "
+                + "quase vazios. O padrão é o Steal An Egg.", 13, false));
+        tvGame = text("", 13, true);
+        root.addView(tvGame);
+        etGame = new EditText(this);
+        etGame.setInputType(InputType.TYPE_CLASS_TEXT);
+        etGame.setSingleLine(true);
+        etGame.setHint("Outro jogo? Cole o link ou o número");
+        root.addView(etGame);
+        root.addView(button("Verificar e usar este jogo", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                resolveGame();
+            }
+        }));
+        for (int i = 0; i < Config.HOP_EDITABLE.length; i++) {
+            root.addView(text(Config.HOP_LABELS[i], 13, false));
+            EditText et = new EditText(this);
+            et.setInputType(InputType.TYPE_CLASS_NUMBER);
+            et.setSingleLine(true);
+            fields.put(Config.HOP_EDITABLE[i], et);
+            root.addView(et);
+        }
+        root.addView(button("Testar server hop agora", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                hopNow();
+            }
+        }));
+        tvHop = text("", 13, false);
+        root.addView(tvHop);
+        tvOverlay = text("", 13, true);
+        root.addView(tvOverlay);
+        root.addView(button("Permitir exibir sobre outros apps", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName())));
+            }
+        }));
+        root.addView(text("Recomendado: sem essa permissão o Android pode impedir o painel flutuante de abrir o "
+                + "Roblox em segundo plano. O servidor mais vazio costuma ter 1 jogador (a lista do Roblox vem dos "
+                + "menores para os maiores); o Roblox limita as consultas, por isso o app reaproveita a lista por 45 s.",
+                12, false));
+
         root.addView(button("Salvar configuração", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -99,6 +153,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        refreshGameInfo();
+        tvOverlay.setText(Settings.canDrawOverlays(this)
+                ? "Exibir sobre outros apps: PERMITIDO" : "Exibir sobre outros apps: não permitido");
         tvService.setText(AutoClickService.instance != null
                 ? "Serviço: ATIVO" : "Serviço: desativado (ative nos ajustes de acessibilidade)");
     }
@@ -141,6 +198,65 @@ public class MainActivity extends Activity {
         int batches = TapPlan.batchSizes(cfg.taps, GestureDescription.getMaxStrokeCount()).length;
         tvEstimate.setText("Janela estimada dos toques: ~" + est + " ms em " + batches + " gesto(s) "
                 + "(o jogo exige " + cfg.tapWindowMs + " ms)" + (est > cfg.tapWindowMs ? "  ← ESTOURA" : "  ← cabe"));
+    }
+
+    private void refreshGameInfo() {
+        tvGame.setText("Jogo atual: " + cfg.placeName + " (Place ID " + cfg.placeId + ")");
+    }
+
+    /** Aceita link ou número (lugar ou universo) e descobre o lugar raiz do jogo pela API do Roblox. */
+    private void resolveGame() {
+        final long id = ServerHop.parseId(etGame.getText().toString());
+        if (id <= 0) {
+            Toast.makeText(this, "Cole o link do jogo (roblox.com/games/...) ou só o número.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        tvHop.setText("Verificando o jogo...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String msg;
+                try {
+                    RobloxApi.GameInfo gi = RobloxApi.resolveGame(id);
+                    if (gi == null) {
+                        msg = "Não encontrei esse jogo. Confira o link ou o número.";
+                    } else {
+                        cfg.placeId = gi.rootPlaceId;
+                        cfg.placeName = gi.name;
+                        ConfigStore.save(MainActivity.this, cfg);
+                        msg = "Ok: " + gi.name + " (Place ID " + gi.rootPlaceId + ")";
+                    }
+                } catch (RobloxApi.ApiException e) {
+                    msg = HopController.explain(e);
+                } catch (IOException e) {
+                    msg = HopController.explain(e);
+                } catch (JSONException e) {
+                    msg = HopController.explain(e);
+                }
+                final String shown = msg;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        tvHop.setText(shown);
+                        refreshGameInfo();
+                        AutoClickService s = AutoClickService.instance;
+                        if (s != null) {
+                            s.reloadConfig();
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void hopNow() {
+        save();
+        HopController.hop(this, cfg, new HopController.Listener() {
+            @Override
+            public void onStatus(String msg) {
+                tvHop.setText(msg);
+            }
+        });
     }
 
     private int dp(int v) {

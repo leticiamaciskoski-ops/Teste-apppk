@@ -63,6 +63,12 @@ public class AutoClickService extends AccessibilityService {
     private TextView tvLog;
     private Button btnRun;
     private Button btnTest;
+    private Button btnHop;
+    private Button btnCollapse;
+    private TextView tvTitle;
+    private TextView tvHop;
+    private LinearLayout body;
+    private boolean collapsed;
 
     private FrameLayout calibView;
     private TextView calLabel;
@@ -121,12 +127,25 @@ public class AutoClickService extends AccessibilityService {
         panel.setBackgroundColor(0xE6101820);
         panel.setPadding(dp(8), dp(6), dp(8), dp(8));
 
-        TextView title = label("≡ Autoclick Pesca (arraste aqui)", 12, 0xFFFFC857);
-        title.setOnTouchListener(dragListener);
-        panel.addView(title);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        tvTitle = label("≡ Autoclick Pesca (arraste aqui)", 12, 0xFFFFC857);
+        tvTitle.setOnTouchListener(dragListener);
+        btnCollapse = button("–", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleCollapsed();
+            }
+        });
+        titleRow.addView(tvTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        titleRow.addView(btnCollapse, new LinearLayout.LayoutParams(dp(44), ViewGroup.LayoutParams.WRAP_CONTENT));
+        panel.addView(titleRow);
+
+        body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
 
         tvStatus = label("", 11, 0xFFBFD7EA);
-        panel.addView(tvStatus);
+        body.addView(tvStatus);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -163,10 +182,22 @@ public class AutoClickService extends AccessibilityService {
         row.addView(btnCal, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
         row.addView(btnTest, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f));
         row.addView(btnHide, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.7f));
-        panel.addView(row);
+        body.addView(row);
+
+        btnHop = button("Server hop", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                doHop();
+            }
+        });
+        body.addView(btnHop, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        tvHop = label("", 11, 0xFFFFC857);
+        body.addView(tvHop);
 
         tvLog = label("", 10, 0xFF9FB6CC);
-        panel.addView(tvLog);
+        body.addView(tvLog);
+        panel.addView(body);
 
         panelLp = new WindowManager.LayoutParams(
                 dp(300),
@@ -196,6 +227,12 @@ public class AutoClickService extends AccessibilityService {
         tvLog = null;
         btnRun = null;
         btnTest = null;
+        btnHop = null;
+        btnCollapse = null;
+        tvTitle = null;
+        tvHop = null;
+        body = null;
+        collapsed = false;
     }
 
     private final View.OnTouchListener dragListener = new View.OnTouchListener() {
@@ -233,6 +270,7 @@ public class AutoClickService extends AccessibilityService {
         }
         btnRun.setText(running ? "Parar" : "Iniciar");
         btnTest.setText(testing ? "Parar teste" : "Testar");
+        btnHop.setText("Server hop (" + ServerHop.describe(cfg.hopMin, cfg.hopMax) + ")");
         if (!testing) {
             tvStatus.setText(stats.summary());
         }
@@ -242,6 +280,36 @@ public class AutoClickService extends AccessibilityService {
             sb.append(log.get(i)).append('\n');
         }
         tvLog.setText(sb.toString());
+    }
+
+    /** Recolhe o painel para uma barrinha (para não cobrir o jogo) ou expande de novo. */
+    private void toggleCollapsed() {
+        if (panel == null || body == null || panelLp == null) {
+            return;
+        }
+        collapsed = !collapsed;
+        body.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        btnCollapse.setText(collapsed ? "+" : "–");
+        tvTitle.setText(collapsed ? "≡ Pesca" : "≡ Autoclick Pesca (arraste aqui)");
+        panelLp.width = collapsed ? dp(120) : dp(300);
+        wm.updateViewLayout(panel, panelLp);
+    }
+
+    /** Server hop: escolhe um servidor com poucos jogadores e abre o Roblox nele. */
+    private void doHop() {
+        if (cfg.placeId <= 0) {
+            addLog("Defina o jogo (Place ID) na tela do app.");
+            return;
+        }
+        HopController.hop(this, cfg, new HopController.Listener() {
+            @Override
+            public void onStatus(String msg) {
+                if (tvHop != null) {
+                    tvHop.setText(msg);
+                }
+                addLog(msg);
+            }
+        });
     }
 
     private void addLog(String msg) {

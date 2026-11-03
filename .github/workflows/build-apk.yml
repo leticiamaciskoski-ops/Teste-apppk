@@ -29,10 +29,19 @@ jobs:
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Testes da logica do autoclick
+      - name: Testes da logica do autoclick e do server hop
         run: |
-          chmod +x tests/run-tests.sh
+          chmod +x tests/run-tests.sh tests/run-api-tests.sh
           ./tests/run-tests.sh
+
+      - name: Testes da API do Roblox (parse offline)
+        run: |
+          curl -fsSL -o /tmp/json.jar https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar
+          ./tests/run-api-tests.sh /tmp/json.jar offline
+
+      - name: Teste real da API do Roblox (informativo)
+        continue-on-error: true
+        run: ./tests/run-api-tests.sh /tmp/json.jar live
 
       - name: Compilar APK (debug)
         run: |

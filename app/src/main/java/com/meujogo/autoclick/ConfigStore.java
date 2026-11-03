@@ -24,6 +24,10 @@ public final class ConfigStore {
             }
         }
         c.fromMap(m);
+        if (sp.contains("placeId") && sp.getLong("placeId", 0) > 0) {
+            c.placeId = sp.getLong("placeId", c.placeId);
+            c.placeName = sp.getString("placeName", c.placeName);
+        }
         return c;
     }
 
@@ -33,6 +37,8 @@ public final class ConfigStore {
         for (Map.Entry<String, Integer> en : c.toMap().entrySet()) {
             e.putInt(en.getKey(), en.getValue());
         }
+        e.putLong("placeId", c.placeId);
+        e.putString("placeName", c.placeName);
         e.apply();
     }
 }

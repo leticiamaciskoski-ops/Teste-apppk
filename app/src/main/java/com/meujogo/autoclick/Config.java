@@ -26,10 +26,21 @@ public class Config {
     public int reactionMs = 0;       // atraso artificial entre detectar e tocar
     public int resultDelayMs = 1800; // pausa entre o fim dos toques e o próximo lançamento
 
+    // Server hop (Roblox)
+    /** Steal An Egg: lugar raiz do universo 10563114921 (confirmado pela API do Roblox). */
+    public static final long DEFAULT_PLACE_ID = 107778070777162L;
+    public static final String DEFAULT_PLACE_NAME = "Steal An Egg";
+    public long placeId = DEFAULT_PLACE_ID;
+    public String placeName = DEFAULT_PLACE_NAME;
+    public int hopMin = 1;           // mínimo de jogadores no servidor escolhido
+    public int hopMax = 2;           // máximo de jogadores no servidor escolhido
+    public int hopMaxPages = 2;      // páginas de 100 servidores (o Roblox limita a ~3 consultas por minuto)
+
     public static final String[] ALL_KEYS = {
             "holdX", "holdY", "tapX", "tapY", "detectX", "detectY", "detectColor",
             "holdMs", "holdJitterMs", "taps", "spacingMs", "tapDurMs", "tapWindowMs",
-            "tolerance", "boxRadius", "pollMs", "maxWaitMs", "reactionMs", "resultDelayMs"
+            "tolerance", "boxRadius", "pollMs", "maxWaitMs", "reactionMs", "resultDelayMs",
+            "hopMin", "hopMax", "hopMaxPages"
     };
 
     /** Campos mostrados na tela de configuração, com seus rótulos. */
@@ -42,6 +53,13 @@ public class Config {
             "Intervalo entre toques (ms)", "Duração de cada toque (ms)", "Janela do jogo para os toques (ms)",
             "Tolerância de cor (0-255)", "Intervalo de leitura da tela (ms, mín. 340)",
             "Tempo máximo esperando o sinal (ms)", "Atraso antes dos toques (ms)", "Pausa entre ciclos (ms)"
+    };
+
+    /** Campos do server hop (números), mostrados na seção própria da tela. */
+    public static final String[] HOP_EDITABLE = {"hopMin", "hopMax", "hopMaxPages"};
+    public static final String[] HOP_LABELS = {
+            "Mínimo de jogadores no servidor", "Máximo de jogadores no servidor",
+            "Páginas de servidores a consultar (1 a 5)"
     };
 
     public boolean calibrated() {
@@ -69,6 +87,9 @@ public class Config {
             case "maxWaitMs": return maxWaitMs;
             case "reactionMs": return reactionMs;
             case "resultDelayMs": return resultDelayMs;
+            case "hopMin": return hopMin;
+            case "hopMax": return hopMax;
+            case "hopMaxPages": return hopMaxPages;
             default: throw new IllegalArgumentException(key);
         }
     }
@@ -94,6 +115,9 @@ public class Config {
             case "maxWaitMs": maxWaitMs = v; break;
             case "reactionMs": reactionMs = v; break;
             case "resultDelayMs": resultDelayMs = v; break;
+            case "hopMin": hopMin = v; break;
+            case "hopMax": hopMax = v; break;
+            case "hopMaxPages": hopMaxPages = v; break;
             default: throw new IllegalArgumentException(key);
         }
     }
@@ -130,6 +154,9 @@ public class Config {
         maxWaitMs = clamp(maxWaitMs, 1000, 600000);
         reactionMs = clamp(reactionMs, 0, 60000);
         resultDelayMs = clamp(resultDelayMs, 0, 600000);
+        hopMin = clamp(hopMin, 1, 100);
+        hopMax = clamp(hopMax, hopMin, 100);
+        hopMaxPages = clamp(hopMaxPages, 1, 5);
     }
 
     private static int clamp(int v, int lo, int hi) {
