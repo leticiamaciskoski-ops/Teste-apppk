@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Server Hop</string>
+    <string name="service_label">Server Hop - Pesca</string>
+    <string name="service_desc">Ferramenta de teste pessoal: toca, segura e arrasta o joystick na tela e lê a cor de um pixel para testar a pesca de um jogo. Não coleta nem envia dados.</string>
 </resources>

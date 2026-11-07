@@ -41,4 +41,23 @@ public final class ConfigStore {
         e.putString("placeName", c.placeName);
         e.apply();
     }
+
+    /** Grava só as chaves dadas (de src), sem sobrescrever o resto que outra parte do app mudou. */
+    public static Config update(Context ctx, Config src, String... keys) {
+        Config fresh = load(ctx);
+        for (String k : keys) {
+            fresh.set(k, src.get(k));
+        }
+        save(ctx, fresh);
+        return fresh;
+    }
+
+    /** Grava só o jogo escolhido. */
+    public static Config updatePlace(Context ctx, Config src) {
+        Config fresh = load(ctx);
+        fresh.placeId = src.placeId;
+        fresh.placeName = src.placeName;
+        save(ctx, fresh);
+        return fresh;
+    }
 }

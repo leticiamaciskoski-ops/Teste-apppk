@@ -1,9 +1,10 @@
 package com.meujogo.serverhop;
 
+import java.lang.reflect.Field;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Configuração do app (Java puro, para poder ser testada na JVM). */
+/** Configuração do app (Java puro, para poder ser testada na JVM). Todos os campos int abaixo são salvos. */
 public class Config {
 
     /** Steal An Egg: lugar raiz do universo 10563114921 (confirmado pela API do Roblox). */
@@ -13,41 +14,99 @@ public class Config {
     public long placeId = DEFAULT_PLACE_ID;
     public String placeName = DEFAULT_PLACE_NAME;
 
+    // ---- server hop ----
     /** Índice do HopMode (0 = vazio, 1 = movimentado). */
     public int mode = 0;
     /** Páginas de 100 servidores a consultar por busca (o Roblox limita a ~3 consultas por minuto). */
     public int maxPages = 2;
 
-    /** Posição do painel flutuante (px) e se está aberto (1) ou recolhido em bolha (0). */
+    // ---- painel flutuante ----
     public int overlayX = 24;
     public int overlayY = 240;
     public int overlayOpen = 1;
+    /** Aba do painel: 0 = Hop, 1 = Pesca. */
+    public int overlayTab = 0;
 
-    public static final String[] INT_KEYS = {"mode", "maxPages", "overlayX", "overlayY", "overlayOpen"};
+    // ---- pesca: pontos calibrados (pixels de tela; -1 = não calibrado) ----
+    public int holdX = -1, holdY = -1;
+    public int tapX = -1, tapY = -1;
+    public int detectX = -1, detectY = -1;
+    public int detectColor = 0; // ARGB lido na calibração
+
+    // ---- pesca: tempos ----
+    public int holdMs = 1300;        // quanto tempo segurar para lançar
+    public int holdJitterMs = 0;     // sorteia holdMs +/- isso
+    public int taps = 13;
+    public int spacingMs = 25;
+    public int tapDurMs = 12;
+    public int tapWindowMs = 500;    // janela do jogo (só para avisos e relatório)
+    public int tolerance = 40;       // diferença máxima por canal RGB
+    public int boxRadius = 3;
+    public int pollMs = 350;         // o Android limita capturas a ~3 por segundo
+    public int maxWaitMs = 15000;
+    public int reactionMs = 0;
+    public int resultDelayMs = 1800;
+
+    // ---- rota: andar até a poça, pescar, andar, voltar ----
+    public int joyX = -1, joyY = -1; // centro do joystick (onde o dedo toca para andar)
+    public int joyRadiusDp = 55;     // quanto arrastar do centro, em dp
+    public int routeOn = 1;          // 1 = usa a rota; 0 = só pesca parado
+    public int startAtPond = 0;      // 1 = já começa na poça (pesca primeiro)
+    public int walkAngle = 0;        // direção até a poça (0 = cima, 90 = direita, 180 = baixo, 270 = esquerda)
+    public int walkSec = 5;          // quanto andar até a poça
+    public int fishSec = 330;        // quanto pescar (330 s = 5 min 30)
+    public int backAngle = 180;      // direção ao sair da poça
+    public int backSec = 5;          // quanto andar ao sair
+    public int pauseSec = 2;         // pausa depois de andar (o personagem parar de deslizar)
+    public int walkJitterPct = 0;    // variação aleatória (±%) dos tempos de caminhada
+
+    public static final String[] INT_KEYS = {
+            "mode", "maxPages", "overlayX", "overlayY", "overlayOpen", "overlayTab",
+            "holdX", "holdY", "tapX", "tapY", "detectX", "detectY", "detectColor",
+            "holdMs", "holdJitterMs", "taps", "spacingMs", "tapDurMs", "tapWindowMs",
+            "tolerance", "boxRadius", "pollMs", "maxWaitMs", "reactionMs", "resultDelayMs",
+            "joyX", "joyY", "joyRadiusDp", "routeOn", "startAtPond",
+            "walkAngle", "walkSec", "fishSec", "backAngle", "backSec", "pauseSec", "walkJitterPct"
+    };
 
     public HopMode hopMode() {
         return HopMode.fromIndex(mode);
     }
 
+    public boolean fishCalibrated() {
+        return holdX >= 0 && holdY >= 0 && tapX >= 0 && tapY >= 0 && detectX >= 0 && detectY >= 0;
+    }
+
+    public boolean joystickCalibrated() {
+        return joyX >= 0 && joyY >= 0;
+    }
+
+    private static Field field(String key) {
+        for (String k : INT_KEYS) {
+            if (k.equals(key)) {
+                try {
+                    return Config.class.getField(key);
+                } catch (NoSuchFieldException e) {
+                    break;
+                }
+            }
+        }
+        throw new IllegalArgumentException(key);
+    }
+
     public int get(String key) {
-        switch (key) {
-            case "mode": return mode;
-            case "maxPages": return maxPages;
-            case "overlayX": return overlayX;
-            case "overlayY": return overlayY;
-            case "overlayOpen": return overlayOpen;
-            default: throw new IllegalArgumentException(key);
+        try {
+            return field(key).getInt(this);
+        } catch (IllegalAccessException e) {
+            throw new IllegalArgumentException(key);
         }
     }
 
     public void set(String key, int v) {
-        switch (key) {
-            case "mode": mode = v; break;
-            case "maxPages": maxPages = v; break;
-            case "overlayX": overlayX = v; break;
-            case "overlayY": overlayY = v; break;
-            case "overlayOpen": overlayOpen = v; break;
-            default: throw new IllegalArgumentException(key);
+        try {
+            field(key).setInt(this, v);
+        } catch (IllegalAccessException e) {
+            throw new IllegalArgumentException(key);
         }
     }
 
@@ -76,6 +135,32 @@ public class Config {
         overlayX = clamp(overlayX, 0, 20000);
         overlayY = clamp(overlayY, 0, 20000);
         overlayOpen = overlayOpen == 0 ? 0 : 1;
+        overlayTab = overlayTab == 1 ? 1 : 0;
+
+        holdMs = clamp(holdMs, 50, 50000);
+        holdJitterMs = clamp(holdJitterMs, 0, holdMs - 50);
+        taps = clamp(taps, 1, 200);
+        spacingMs = clamp(spacingMs, 1, 1000);
+        tapDurMs = clamp(tapDurMs, 1, 1000);
+        tapWindowMs = clamp(tapWindowMs, 1, 60000);
+        tolerance = clamp(tolerance, 0, 255);
+        boxRadius = clamp(boxRadius, 0, 20);
+        pollMs = clamp(pollMs, 340, 60000);
+        maxWaitMs = clamp(maxWaitMs, 1000, 600000);
+        reactionMs = clamp(reactionMs, 0, 60000);
+        resultDelayMs = clamp(resultDelayMs, 0, 600000);
+
+        joyRadiusDp = clamp(joyRadiusDp, 10, 200);
+        routeOn = routeOn == 0 ? 0 : 1;
+        startAtPond = startAtPond == 0 ? 0 : 1;
+        walkAngle = Route.normAngle(walkAngle);
+        backAngle = Route.normAngle(backAngle);
+        walkSec = clamp(walkSec, 1, 50);   // um gesto do Android dura no máximo 60 s
+        backSec = clamp(backSec, 1, 50);
+        fishSec = clamp(fishSec, 10, 86400);
+        pauseSec = clamp(pauseSec, 0, 60);
+        walkJitterPct = clamp(walkJitterPct, 0, 50);
+
         if (placeId <= 0) {
             placeId = DEFAULT_PLACE_ID;
             placeName = DEFAULT_PLACE_NAME;

@@ -7,7 +7,9 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.content.Context;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Icon;
 import android.os.Build;
@@ -23,6 +25,8 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import java.util.List;
 
 /**
  * Painel flutuante (sobreposição de tela): fica por cima do Roblox e troca de servidor sem sair do
@@ -48,6 +52,18 @@ public class OverlayService extends Service {
     private TextView chipEmpty;
     private TextView chipBusy;
     private TextView btnHop;
+    private TextView tabHop;
+    private TextView tabFish;
+    private LinearLayout hopBox;
+    private LinearLayout fishBox;
+    private TextView tvPhase;
+    private TextView tvFishStats;
+    private TextView tvFishLog;
+    private TextView btnRun;
+    private TextView btnTest;
+    private TextView btnA11y;
+    private LinearLayout fishButtons;
+    private GradientDrawable circle;
     private Config cfg;
     private boolean added;
 
@@ -61,6 +77,23 @@ public class OverlayService extends Service {
         super.onCreate();
         running = true;
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        FishService.listener = new FishService.Listener() {
+            @Override
+            public void onUpdate() {
+                refreshFish();
+            }
+        };
+        FishService.avoid = new FishService.AvoidProvider() {
+            @Override
+            public Rect rect() {
+                if (root == null || !added) {
+                    return null;
+                }
+                int[] loc = new int[2];
+                root.getLocationOnScreen(loc);
+                return new Rect(loc[0], loc[1], loc[0] + root.getWidth(), loc[1] + root.getHeight());
+            }
+        };
     }
 
     @Override
@@ -87,6 +120,8 @@ public class OverlayService extends Service {
         }
         added = false;
         running = false;
+        FishService.listener = null;
+        FishService.avoid = null;
         super.onDestroy();
     }
 
@@ -188,6 +223,34 @@ public class OverlayService extends Service {
         head.addView(btnClose, Ui.params(this, Ui.dp(this, 36), Ui.dp(this, 32), 6, 0, 0, 0));
         panel.addView(head);
 
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabHop = Ui.chip(this, "Hop", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                setTab(0);
+            }
+        });
+        tabFish = Ui.chip(this, "Pesca", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                setTab(1);
+            }
+        });
+        tabHop.setTextSize(13);
+        tabFish.setTextSize(13);
+        LinearLayout.LayoutParams tp1 = Ui.params(this, 0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 6, 4, 0);
+        tp1.weight = 1f;
+        LinearLayout.LayoutParams tp2 = Ui.params(this, 0, ViewGroup.LayoutParams.WRAP_CONTENT, 4, 6, 0, 0);
+        tp2.weight = 1f;
+        tabs.addView(tabHop, tp1);
+        tabs.addView(tabFish, tp2);
+        panel.addView(tabs);
+
+        hopBox = new LinearLayout(this);
+        hopBox.setOrientation(LinearLayout.VERTICAL);
+        panel.addView(hopBox);
+
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(LinearLayout.HORIZONTAL);
         chipEmpty = Ui.chip(this, HopMode.EMPTY.label, new View.OnClickListener() {
@@ -208,7 +271,7 @@ public class OverlayService extends Service {
         ((LinearLayout.LayoutParams) chipEmpty.getLayoutParams()).weight = 1f;
         chips.addView(chipBusy, Ui.params(this, 0, ViewGroup.LayoutParams.WRAP_CONTENT, 4, 0, 0, 0));
         ((LinearLayout.LayoutParams) chipBusy.getLayoutParams()).weight = 1f;
-        panel.addView(chips, Ui.params(this, ViewGroup.LayoutParams.MATCH_PARENT,
+        hopBox.addView(chips, Ui.params(this, ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 0));
 
         btnHop = Ui.button(this, "Trocar de servidor", Ui.ACCENT, Ui.ON_ACCENT, new View.OnClickListener() {
@@ -217,21 +280,24 @@ public class OverlayService extends Service {
                 doHop();
             }
         });
-        panel.addView(btnHop, Ui.params(this, ViewGroup.LayoutParams.MATCH_PARENT,
+        hopBox.addView(btnHop, Ui.params(this, ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 10, 0, 0));
 
         tvResult = Ui.text(this, "", 13, Ui.TEXT, true);
-        panel.addView(tvResult, Ui.params(this, ViewGroup.LayoutParams.MATCH_PARENT,
+        hopBox.addView(tvResult, Ui.params(this, ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 0));
         tvStatus = Ui.text(this, "Pronto.", 12, Ui.MUTED, false);
-        panel.addView(tvStatus, Ui.params(this, ViewGroup.LayoutParams.MATCH_PARENT,
+        hopBox.addView(tvStatus, Ui.params(this, ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 2, 0, 0));
 
-        root.addView(panel, new FrameLayout.LayoutParams(Ui.dp(this, 252), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        buildFishBox();
+
+        root.addView(panel, new FrameLayout.LayoutParams(Ui.dp(this, 270), ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // ---- bolha recolhida ----
         bubble = new FrameLayout(this);
-        GradientDrawable circle = new GradientDrawable();
+        circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setColor(0xF20B1A2E);
         circle.setStroke(Ui.dp(this, 2), Ui.ACCENT);
@@ -243,7 +309,164 @@ public class OverlayService extends Service {
         root.addView(bubble, new FrameLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
 
         paintChips();
+        applyTab();
         applyOpen(cfg.overlayOpen == 1);
+        refreshFish();
+    }
+
+    private void buildFishBox() {
+        fishBox = new LinearLayout(this);
+        fishBox.setOrientation(LinearLayout.VERTICAL);
+        tvPhase = Ui.text(this, "", 14, Ui.ACCENT, true);
+        fishBox.addView(tvPhase, Ui.params(this, -1, -2, 0, 10, 0, 0));
+        tvFishStats = Ui.text(this, "", 11, Ui.MUTED, false);
+        fishBox.addView(tvFishStats, Ui.params(this, -1, -2, 0, 4, 0, 0));
+
+        fishButtons = new LinearLayout(this);
+        fishButtons.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout r1 = new LinearLayout(this);
+        btnRun = Ui.button(this, "Iniciar", Ui.ACCENT, Ui.ON_ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleRun();
+            }
+        });
+        btnTest = Ui.button(this, "Testar", Ui.CHIP_OFF, Ui.ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                FishService f = FishService.instance;
+                if (f != null) {
+                    f.toggleTest();
+                }
+            }
+        });
+        btnRun.setTextSize(14);
+        btnTest.setTextSize(14);
+        LinearLayout.LayoutParams l1 = Ui.params(this, 0, -2, 0, 0, 4, 0);
+        l1.weight = 1.3f;
+        LinearLayout.LayoutParams l2 = Ui.params(this, 0, -2, 4, 0, 0, 0);
+        l2.weight = 1f;
+        r1.addView(btnRun, l1);
+        r1.addView(btnTest, l2);
+        fishButtons.addView(r1, Ui.params(this, -1, -2, 0, 8, 0, 0));
+
+        LinearLayout r2 = new LinearLayout(this);
+        TextView c1 = Ui.button(this, "Calibrar pesca", Ui.CHIP_OFF, Ui.TEXT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                calibrate(false);
+            }
+        });
+        TextView c2 = Ui.button(this, "Calibrar joystick", Ui.CHIP_OFF, Ui.TEXT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                calibrate(true);
+            }
+        });
+        c1.setTextSize(12);
+        c2.setTextSize(12);
+        LinearLayout.LayoutParams m1 = Ui.params(this, 0, -2, 0, 0, 4, 0);
+        m1.weight = 1f;
+        LinearLayout.LayoutParams m2 = Ui.params(this, 0, -2, 4, 0, 0, 0);
+        m2.weight = 1f;
+        r2.addView(c1, m1);
+        r2.addView(c2, m2);
+        fishButtons.addView(r2, Ui.params(this, -1, -2, 0, 6, 0, 0));
+        fishBox.addView(fishButtons);
+
+        btnA11y = Ui.button(this, "Ativar acessibilidade", Ui.WARN, Ui.ON_ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            }
+        });
+        btnA11y.setTextSize(13);
+        fishBox.addView(btnA11y, Ui.params(this, -1, -2, 0, 8, 0, 0));
+
+        tvFishLog = Ui.text(this, "", 10, Ui.MUTED, false);
+        fishBox.addView(tvFishLog, Ui.params(this, -1, -2, 0, 8, 0, 0));
+        panel.addView(fishBox);
+    }
+
+    private void setTab(int tab) {
+        cfg.overlayTab = tab;
+        cfg = ConfigStore.update(this, cfg, "overlayTab");
+        applyTab();
+        refreshFish();
+        if (added) {
+            clampPosition();
+            wm.updateViewLayout(root, lp);
+        }
+    }
+
+    private void applyTab() {
+        boolean fish = cfg.overlayTab == 1;
+        hopBox.setVisibility(fish ? View.GONE : View.VISIBLE);
+        fishBox.setVisibility(fish ? View.VISIBLE : View.GONE);
+        Ui.setChip(tabHop, this, !fish);
+        Ui.setChip(tabFish, this, fish);
+    }
+
+    private void toggleRun() {
+        final FishService f = FishService.instance;
+        if (f == null) {
+            return;
+        }
+        if (f.isRunning()) {
+            f.stopAll();
+            return;
+        }
+        // recolhe o painel antes: ele não pode ficar por cima dos pontos calibrados
+        if (cfg.overlayOpen == 1) {
+            setOpen(false);
+        }
+        root.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                f.start();
+            }
+        }, 250);
+    }
+
+    private void calibrate(boolean joystickOnly) {
+        FishService f = FishService.instance;
+        if (f == null) {
+            return;
+        }
+        f.startCalibration(joystickOnly);
+    }
+
+    /** Atualiza a aba de pesca e a cor da bolha (laranja = pescando). */
+    private void refreshFish() {
+        if (tvPhase == null) {
+            return;
+        }
+        FishService f = FishService.instance;
+        boolean on = f != null;
+        boolean run = on && f.isRunning();
+        fishButtons.setVisibility(on ? View.VISIBLE : View.GONE);
+        btnA11y.setVisibility(on ? View.GONE : View.VISIBLE);
+        if (!on) {
+            tvPhase.setText("Acessibilidade desligada");
+            tvFishStats.setText("A pesca precisa do serviço de acessibilidade. Se o Android bloquear, veja a ajuda na aba Pesca do app.");
+            tvFishLog.setText("");
+        } else {
+            tvPhase.setText(f.phaseLine());
+            tvFishStats.setText(f.statsText());
+            StringBuilder sb = new StringBuilder();
+            List<String> l = f.recentLog(4);
+            for (String x : l) {
+                sb.append(x).append('\n');
+            }
+            tvFishLog.setText(sb.toString());
+            btnRun.setText(run ? "Parar" : "Iniciar");
+            btnTest.setText(f.isTesting() ? "Parar teste" : "Testar");
+        }
+        if (circle != null) {
+            circle.setStroke(Ui.dp(this, 2), run ? Ui.WARN : Ui.ACCENT);
+        }
     }
 
     private TextView headButton(String label, View.OnClickListener l) {
@@ -262,7 +485,7 @@ public class OverlayService extends Service {
     private void setOpen(boolean open) {
         cfg.overlayOpen = open ? 1 : 0;
         applyOpen(open);
-        ConfigStore.save(this, cfg);
+        cfg = ConfigStore.update(this, cfg, "overlayOpen");
         if (added) {
             clampPosition();
             wm.updateViewLayout(root, lp);
@@ -276,7 +499,7 @@ public class OverlayService extends Service {
 
     private void setMode(int mode) {
         cfg.mode = mode;
-        ConfigStore.save(this, cfg);
+        cfg = ConfigStore.update(this, cfg, "mode");
         paintChips();
         tvStatus.setText("Tipo: " + cfg.hopMode().label + " (" + cfg.hopMode().describe(ServerHop.DEFAULT_CAP) + ")");
     }
@@ -353,7 +576,7 @@ public class OverlayService extends Service {
                         if (moved) {
                             cfg.overlayX = lp.x;
                             cfg.overlayY = lp.y;
-                            ConfigStore.save(OverlayService.this, cfg);
+                            cfg = ConfigStore.update(OverlayService.this, cfg, "overlayX", "overlayY");
                         } else if (tapOpens) {
                             setOpen(true);
                         }
