@@ -1,4 +1,4 @@
-package com.meujogo.autoclick;
+package com.meujogo.serverhop;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -22,8 +22,7 @@ public final class RobloxApi {
     private RobloxApi() {
     }
 
-    public static final String SORT_ORDER = "Asc"; // Asc = menos jogadores primeiro (confirmado em teste real)
-    private static final String UA = "Mozilla/5.0 (Linux; Android 13) AutoclickPesca/0.2";
+    private static final String UA = "Mozilla/5.0 (Linux; Android 13) ServerHop/0.3";
 
     public static final class ApiException extends Exception {
         public final int httpCode;
@@ -35,16 +34,6 @@ public final class RobloxApi {
             this.httpCode = httpCode;
             this.retryAfterSec = retryAfterSec;
             this.resetSec = resetSec;
-        }
-    }
-
-    public static final class Page {
-        public final List<ServerHop.Server> servers;
-        public final String nextCursor;
-
-        public Page(List<ServerHop.Server> servers, String nextCursor) {
-            this.servers = servers;
-            this.nextCursor = nextCursor;
         }
     }
 
@@ -64,8 +53,11 @@ public final class RobloxApi {
     // JSON (sem rede, testável)
     // ------------------------------------------------------------------
 
-    /** Interpreta a resposta de /v1/games/{placeId}/servers/Public. Ignora entradas sem id. */
-    public static Page parsePage(String json) throws JSONException {
+    /**
+     * Interpreta a resposta de /v1/games/{placeId}/servers/Public. Ignora entradas sem id.
+     * fps/ping ausentes ou nulos viram -1 (status desconhecido).
+     */
+    public static ServerHop.Page parsePage(String json) throws JSONException {
         JSONObject o = new JSONObject(json);
         List<ServerHop.Server> list = new ArrayList<>();
         JSONArray data = o.optJSONArray("data");
@@ -79,7 +71,9 @@ public final class RobloxApi {
                 if (id.isEmpty()) {
                     continue;
                 }
-                list.add(new ServerHop.Server(id, s.optInt("playing", 0), s.optInt("maxPlayers", 0)));
+                double fps = known(s, "fps") ? s.optDouble("fps", -1) : -1;
+                int ping = known(s, "ping") ? s.optInt("ping", -1) : -1;
+                list.add(new ServerHop.Server(id, s.optInt("playing", 0), s.optInt("maxPlayers", 0), fps, ping));
             }
         }
         // Atenção: no Android, optString devolve a palavra "null" para JSON null; por isso o isNull.
@@ -87,7 +81,11 @@ public final class RobloxApi {
         if (next != null && next.isEmpty()) {
             next = null;
         }
-        return new Page(list, next);
+        return new ServerHop.Page(list, next);
+    }
+
+    private static boolean known(JSONObject s, String key) {
+        return s.has(key) && !s.isNull(key);
     }
 
     /** Interpreta a resposta de /v1/games?universeIds=... (primeiro jogo da lista, ou null). */
@@ -108,33 +106,20 @@ public final class RobloxApi {
     // Rede
     // ------------------------------------------------------------------
 
-    public static Page fetchServers(long placeId, String cursor) throws IOException, ApiException, JSONException {
-        return parsePage(get(ServerHop.serversUrl(placeId, SORT_ORDER, 100, cursor)));
+    public static ServerHop.Page fetchServers(long placeId, String sortOrder, String cursor)
+            throws IOException, ApiException, JSONException {
+        return parsePage(get(ServerHop.serversUrl(placeId, sortOrder, 100, cursor)));
     }
 
-    /**
-     * Busca páginas (de 100 servidores) até aparecer algum servidor com min..max jogadores.
-     * Devolve TODOS os servidores lidos, para a lista poder ser reaproveitada. Como a lista vem
-     * em ordem crescente, para quando a página inteira já passou de 'max'.
-     */
-    public static List<ServerHop.Server> fetchSmallServers(long placeId, int min, int max, int maxPages)
-            throws IOException, ApiException, JSONException, InterruptedException {
-        List<ServerHop.Server> all = new ArrayList<>();
-        String cursor = null;
-        for (int p = 0; p < maxPages; p++) {
-            Page page = fetchServers(placeId, cursor);
-            all.addAll(page.servers);
-            if (!ServerHop.filter(all, min, max, null).isEmpty()) {
-                break;
+    /** Lê páginas na ordem certa para o modo até achar servidores (veja ServerHop.collect). */
+    public static List<ServerHop.Server> fetchCandidates(final long placeId, HopMode mode, int maxPages)
+            throws Exception {
+        return ServerHop.collect(new ServerHop.PageSource() {
+            @Override
+            public ServerHop.Page fetch(String sortOrder, String cursor) throws Exception {
+                return fetchServers(placeId, sortOrder, cursor);
             }
-            if (page.nextCursor == null || page.servers.isEmpty()
-                    || ServerHop.minPlaying(page.servers) > max) {
-                break;
-            }
-            cursor = page.nextCursor;
-            Thread.sleep(1500); // respeita o limite de consultas do Roblox
-        }
-        return all;
+        }, mode, maxPages, 1500);
     }
 
     /**

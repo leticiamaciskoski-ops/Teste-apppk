@@ -1,4 +1,4 @@
-package com.meujogo.autoclick;
+package com.meujogo.serverhop;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -9,7 +9,7 @@ import java.util.Map;
 /** Guarda e lê a configuração nas preferências do app. */
 public final class ConfigStore {
 
-    private static final String FILE = "autoclick_config";
+    private static final String FILE = "hop_config";
 
     private ConfigStore() {
     }
@@ -18,16 +18,16 @@ public final class ConfigStore {
         SharedPreferences sp = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE);
         Config c = new Config();
         Map<String, Integer> m = new HashMap<>();
-        for (String k : Config.ALL_KEYS) {
+        for (String k : Config.INT_KEYS) {
             if (sp.contains(k)) {
                 m.put(k, sp.getInt(k, c.get(k)));
             }
         }
-        c.fromMap(m);
         if (sp.contains("placeId") && sp.getLong("placeId", 0) > 0) {
             c.placeId = sp.getLong("placeId", c.placeId);
             c.placeName = sp.getString("placeName", c.placeName);
         }
+        c.fromMap(m);
         return c;
     }
 

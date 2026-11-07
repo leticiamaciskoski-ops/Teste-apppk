@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Autoclick Pesca</string>
-    <string name="service_label">Autoclick Pesca</string>
-    <string name="service_desc">Ferramenta de teste pessoal: segura e toca na tela e lê a cor de um pixel para testar um minigame de pesca. Não coleta nem envia dados.</string>
+    <string name="app_name">Server Hop</string>
 </resources>
