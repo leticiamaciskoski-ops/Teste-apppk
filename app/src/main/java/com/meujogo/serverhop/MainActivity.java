@@ -29,11 +29,10 @@ import java.util.List;
  */
 public class MainActivity extends Activity {
 
-    private static final String[] ROUTE_KEYS = {"walkSec", "fishSec", "backSec", "pauseSec", "walkJitterPct", "joyRadiusDp"};
-    private static final String[] ROUTE_LABELS = {
-            "Andar até a poça (segundos)", "Pescar por (segundos; 330 = 5 min 30)", "Andar ao sair da poça (segundos)",
-            "Pausa depois de andar (segundos)", "Variação aleatória da caminhada (± %)",
-            "Distância de arrasto do joystick (dp)"};
+    private static final String[] EQUIP_KEYS = {"equipTaps", "equipSpacingMs", "equipPauseMs", "equipEvery"};
+    private static final String[] EQUIP_LABELS = {
+            "Toques no slot da vara", "Intervalo entre esses toques (ms)",
+            "Espera depois, para a vara aparecer na mão (ms)", "Pegar a vara a cada quantos ciclos"};
     private static final String[] FISH_KEYS = {"holdMs", "holdJitterMs", "taps", "spacingMs", "tapDurMs", "tapWindowMs",
             "tolerance", "pollMs", "maxWaitMs", "reactionMs", "resultDelayMs"};
     private static final String[] FISH_LABELS = {
@@ -41,8 +40,6 @@ public class MainActivity extends Activity {
             "Intervalo entre toques (ms)", "Duração de cada toque (ms)", "Janela do jogo para os toques (ms)",
             "Tolerância de cor (0-255)", "Intervalo de leitura da tela (ms, mín. 340)",
             "Tempo máximo esperando o sinal (ms)", "Atraso antes dos toques (ms)", "Pausa entre ciclos (ms)"};
-    private static final int[] ANGLES = {0, 45, 90, 135, 180, 225, 270, 315};
-    private static final String[] ARROWS = {"↑", "↗", "→", "↘", "↓", "↙", "←", "↖"};
 
     private Config cfg;
     private final List<LinearLayout> sections = new ArrayList<>();
@@ -61,13 +58,8 @@ public class MainActivity extends Activity {
     private EditText etGame;
     // pesca
     private TextView tvA11y;
-    private TextView chipRouteOn;
-    private TextView chipRouteOff;
-    private TextView chipStartSpawn;
-    private TextView chipStartPond;
-    private final TextView[] walkChips = new TextView[8];
-    private final TextView[] backChips = new TextView[8];
-    private TextView tvRouteSummary;
+    private TextView chipEquipOn;
+    private TextView chipEquipOff;
     private TextView tvCalib;
     private final List<EditText> fields = new ArrayList<>();
     private final List<String> fieldKeys = new ArrayList<>();
@@ -276,7 +268,7 @@ public class MainActivity extends Activity {
         c0.addView(Ui.text(this, "Acessibilidade", 16, Ui.TEXT, true));
         tvA11y = Ui.text(this, "", 13, Ui.MUTED, true);
         c0.addView(tvA11y, Ui.params(this, -1, -2, 0, 6, 0, 0));
-        c0.addView(Ui.text(this, "A pesca toca, segura e arrasta o joystick por gestos de acessibilidade e lê a cor de "
+        c0.addView(Ui.text(this, "A pesca toca e segura a tela por gestos de acessibilidade e lê a cor de "
                 + "um pixel da tela. Nada é coletado nem enviado.", 12, Ui.MUTED, false), Ui.params(this, -1, -2, 0, 4, 0, 0));
         c0.addView(Ui.button(this, "Abrir ajustes de acessibilidade", Ui.ACCENT, Ui.ON_ACCENT, new View.OnClickListener() {
             @Override
@@ -297,31 +289,22 @@ public class MainActivity extends Activity {
                 }), Ui.params(this, -1, -2, 0, 8, 0, 0));
         s.addView(c0, gap());
 
-        // rota
+        // pegar a vara
         LinearLayout c1 = Ui.card(this);
-        c1.addView(Ui.text(this, "Rota automática", 16, Ui.TEXT, true));
-        c1.addView(Ui.text(this, "Anda até a poça, pesca pelo tempo definido, anda para sair e anda de novo "
-                + "até a poça, em repetição.", 12, Ui.MUTED, false), Ui.params(this, -1, -2, 0, 4, 0, 0));
-        c1.addView(chipRow(new String[]{"Rota ligada", "Só pescar parado"}, 0, new TextView[2], true),
+        c1.addView(Ui.text(this, "Pegar a vara", 16, Ui.TEXT, true));
+        c1.addView(Ui.text(this, "Antes de cada lançamento, toca algumas vezes no slot da vara no inventário, "
+                + "caso ela tenha saído da mão.", 12, Ui.MUTED, false), Ui.params(this, -1, -2, 0, 4, 0, 0));
+        c1.addView(chipRow(new String[]{"Pegar a vara", "Não pegar"}),
                 Ui.params(this, -1, -2, 0, 10, 0, 0));
-        chipRouteOn = (TextView) ((LinearLayout) c1.getChildAt(c1.getChildCount() - 1)).getChildAt(0);
-        chipRouteOff = (TextView) ((LinearLayout) c1.getChildAt(c1.getChildCount() - 1)).getChildAt(1);
-        c1.addView(chipRow(new String[]{"Começo longe da poça", "Já estou na poça"}, 1, new TextView[2], true),
-                Ui.params(this, -1, -2, 0, 8, 0, 0));
-        chipStartSpawn = (TextView) ((LinearLayout) c1.getChildAt(c1.getChildCount() - 1)).getChildAt(0);
-        chipStartPond = (TextView) ((LinearLayout) c1.getChildAt(c1.getChildCount() - 1)).getChildAt(1);
-
-        c1.addView(Ui.text(this, "Direção até a poça", 13, Ui.TEXT, true), Ui.params(this, -1, -2, 0, 14, 0, 0));
-        c1.addView(arrowRow(walkChips, true), Ui.params(this, -1, -2, 0, 6, 0, 0));
-        c1.addView(Ui.text(this, "Direção ao sair da poça", 13, Ui.TEXT, true), Ui.params(this, -1, -2, 0, 12, 0, 0));
-        c1.addView(arrowRow(backChips, false), Ui.params(this, -1, -2, 0, 6, 0, 0));
-        c1.addView(Ui.text(this, "As direções valem para o personagem na tela do jogo; se a câmera girar, a direção real "
-                + "muda. Ajuste os segundos testando.", 11, Ui.MUTED, false), Ui.params(this, -1, -2, 0, 8, 0, 0));
-        for (int i = 0; i < ROUTE_KEYS.length; i++) {
-            addField(c1, ROUTE_KEYS[i], ROUTE_LABELS[i]);
+        LinearLayout row = (LinearLayout) c1.getChildAt(c1.getChildCount() - 1);
+        chipEquipOn = (TextView) row.getChildAt(0);
+        chipEquipOff = (TextView) row.getChildAt(1);
+        for (int i = 0; i < EQUIP_KEYS.length; i++) {
+            addField(c1, EQUIP_KEYS[i], EQUIP_LABELS[i]);
         }
-        tvRouteSummary = Ui.text(this, "", 12, Ui.ACCENT, true);
-        c1.addView(tvRouteSummary, Ui.params(this, -1, -2, 0, 12, 0, 0));
+        c1.addView(Ui.text(this, "Atenção: no Roblox, tocar no slot de uma ferramenta que já está na mão a guarda. "
+                + "Com número ímpar de toques, ela termina na mão se estava guardada; se já estava na mão, termina guardada. "
+                + "Ajuste os toques/ciclos testando o seu jogo.", 11, Ui.WARN, false), Ui.params(this, -1, -2, 0, 12, 0, 0));
         s.addView(c1, gap());
 
         // calibração
@@ -330,7 +313,7 @@ public class MainActivity extends Activity {
         tvCalib = Ui.text(this, "", 13, Ui.MUTED, false);
         c2.addView(tvCalib, Ui.params(this, -1, -2, 0, 6, 0, 0));
         c2.addView(Ui.text(this, "Calibre e inicie pelo painel flutuante, por cima do jogo (aba Pesca): "
-                + "1) Calibrar pesca, 2) Calibrar joystick, 3) Testar, 4) Iniciar.", 12, Ui.MUTED, false),
+                + "1) Calibrar pesca (vara, segurar, toques, sinal), 2) Testar, 3) Iniciar.", 12, Ui.MUTED, false),
                 Ui.params(this, -1, -2, 0, 6, 0, 0));
         c2.addView(Ui.button(this, "Ligar painel flutuante", Ui.CHIP_OFF, Ui.ACCENT, new View.OnClickListener() {
             @Override
@@ -362,7 +345,7 @@ public class MainActivity extends Activity {
         return s;
     }
 
-    private LinearLayout chipRow(String[] labels, final int which, TextView[] out, boolean two) {
+    private LinearLayout chipRow(String[] labels) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < labels.length; i++) {
@@ -371,13 +354,8 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     saveFields();
-                    if (which == 0) {
-                        cfg.routeOn = idx == 0 ? 1 : 0;
-                        cfg = ConfigStore.update(MainActivity.this, cfg, "routeOn");
-                    } else {
-                        cfg.startAtPond = idx;
-                        cfg = ConfigStore.update(MainActivity.this, cfg, "startAtPond");
-                    }
+                    cfg.equipOn = idx == 0 ? 1 : 0;
+                    cfg = ConfigStore.update(MainActivity.this, cfg, "equipOn");
                     refresh();
                 }
             });
@@ -385,39 +363,6 @@ public class MainActivity extends Activity {
             LinearLayout.LayoutParams p = Ui.params(this, 0, -2, i == 0 ? 0 : 4, 0, i == labels.length - 1 ? 0 : 4, 0);
             p.weight = 1f;
             row.addView(t, p);
-        }
-        return row;
-    }
-
-    private LinearLayout arrowRow(final TextView[] store, final boolean walk) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        for (int i = 0; i < ANGLES.length; i++) {
-            final int angle = ANGLES[i];
-            TextView t = Ui.chip(this, ARROWS[i], new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    saveFields();
-                    if (walk) {
-                        boolean linked = cfg.backAngle == Route.opposite(cfg.walkAngle);
-                        cfg.walkAngle = angle;
-                        if (linked) {
-                            cfg.backAngle = Route.opposite(angle); // sair = voltar pelo caminho
-                        }
-                        cfg = ConfigStore.update(MainActivity.this, cfg, "walkAngle", "backAngle");
-                    } else {
-                        cfg.backAngle = angle;
-                        cfg = ConfigStore.update(MainActivity.this, cfg, "backAngle");
-                    }
-                    refresh();
-                }
-            });
-            t.setTextSize(16);
-            t.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 10));
-            LinearLayout.LayoutParams p = Ui.params(this, 0, -2, i == 0 ? 0 : 2, 0, i == 7 ? 0 : 2, 0);
-            p.weight = 1f;
-            row.addView(t, p);
-            store[i] = t;
         }
         return row;
     }
@@ -534,22 +479,11 @@ public class MainActivity extends Activity {
         boolean a11y = FishService.instance != null;
         tvA11y.setText(a11y ? "Serviço: ligado" : "Serviço: desligado");
         tvA11y.setTextColor(a11y ? Ui.ACCENT : Ui.WARN);
-        Ui.setChip(chipRouteOn, this, cfg.routeOn == 1);
-        Ui.setChip(chipRouteOff, this, cfg.routeOn == 0);
-        Ui.setChip(chipStartSpawn, this, cfg.startAtPond == 0);
-        Ui.setChip(chipStartPond, this, cfg.startAtPond == 1);
-        for (int i = 0; i < ANGLES.length; i++) {
-            Ui.setChip(walkChips[i], this, cfg.walkAngle == ANGLES[i]);
-            Ui.setChip(backChips[i], this, cfg.backAngle == ANGLES[i]);
-        }
-        tvRouteSummary.setText(cfg.routeOn == 1
-                ? (cfg.startAtPond == 1 ? "Ciclo: " : "Ciclo: andar " + cfg.walkSec + " s " + Route.compass(cfg.walkAngle) + " → ")
-                + "pescar " + Route.clock(cfg.fishSec * 1000L) + " → andar " + cfg.backSec + " s "
-                + Route.compass(cfg.backAngle) + " → andar " + cfg.walkSec + " s " + Route.compass(cfg.walkAngle)
-                + " → pescar de novo..."
-                : "Rota desligada: só pesca parado, sem andar.");
-        tvCalib.setText("Pesca: " + (cfg.fishCalibrated() ? "calibrada" : "NÃO calibrada")
-                + "\nJoystick: " + (cfg.joystickCalibrated() ? "calibrado" : "NÃO calibrado"));
+        Ui.setChip(chipEquipOn, this, cfg.equipOn == 1);
+        Ui.setChip(chipEquipOff, this, cfg.equipOn == 0);
+        tvCalib.setText((cfg.equipOn == 1 ? "Slot da vara: " + (cfg.equipX >= 0 ? "calibrado" : "NÃO calibrado") + "\n" : "")
+                + "Pesca (segurar, toques, sinal): "
+                + (cfg.holdX >= 0 && cfg.tapX >= 0 && cfg.detectX >= 0 ? "calibrada" : "NÃO calibrada"));
 
         // janelas
         boolean perm = Settings.canDrawOverlays(this);

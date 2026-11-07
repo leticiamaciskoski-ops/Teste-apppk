@@ -47,26 +47,20 @@ public class Config {
     public int reactionMs = 0;
     public int resultDelayMs = 1800;
 
-    // ---- rota: andar até a poça, pescar, andar, voltar ----
-    public int joyX = -1, joyY = -1; // centro do joystick (onde o dedo toca para andar)
-    public int joyRadiusDp = 55;     // quanto arrastar do centro, em dp
-    public int routeOn = 1;          // 1 = usa a rota; 0 = só pesca parado
-    public int startAtPond = 0;      // 1 = já começa na poça (pesca primeiro)
-    public int walkAngle = 0;        // direção até a poça (0 = cima, 90 = direita, 180 = baixo, 270 = esquerda)
-    public int walkSec = 5;          // quanto andar até a poça
-    public int fishSec = 330;        // quanto pescar (330 s = 5 min 30)
-    public int backAngle = 180;      // direção ao sair da poça
-    public int backSec = 5;          // quanto andar ao sair
-    public int pauseSec = 2;         // pausa depois de andar (o personagem parar de deslizar)
-    public int walkJitterPct = 0;    // variação aleatória (±%) dos tempos de caminhada
+    // ---- pegar a vara no inventário (antes de pescar) ----
+    public int equipOn = 1;          // 1 = toca no slot da vara antes de pescar
+    public int equipX = -1, equipY = -1; // slot da vara no inventário/hotbar
+    public int equipTaps = 3;        // quantos toques no slot
+    public int equipSpacingMs = 150; // intervalo entre esses toques
+    public int equipPauseMs = 500;   // espera depois, para a vara aparecer na mão
+    public int equipEvery = 1;       // pegar a vara a cada N ciclos de pesca
 
     public static final String[] INT_KEYS = {
             "mode", "maxPages", "overlayX", "overlayY", "overlayOpen", "overlayTab",
             "holdX", "holdY", "tapX", "tapY", "detectX", "detectY", "detectColor",
             "holdMs", "holdJitterMs", "taps", "spacingMs", "tapDurMs", "tapWindowMs",
             "tolerance", "boxRadius", "pollMs", "maxWaitMs", "reactionMs", "resultDelayMs",
-            "joyX", "joyY", "joyRadiusDp", "routeOn", "startAtPond",
-            "walkAngle", "walkSec", "fishSec", "backAngle", "backSec", "pauseSec", "walkJitterPct"
+            "equipOn", "equipX", "equipY", "equipTaps", "equipSpacingMs", "equipPauseMs", "equipEvery"
     };
 
     public HopMode hopMode() {
@@ -74,11 +68,8 @@ public class Config {
     }
 
     public boolean fishCalibrated() {
-        return holdX >= 0 && holdY >= 0 && tapX >= 0 && tapY >= 0 && detectX >= 0 && detectY >= 0;
-    }
-
-    public boolean joystickCalibrated() {
-        return joyX >= 0 && joyY >= 0;
+        return holdX >= 0 && holdY >= 0 && tapX >= 0 && tapY >= 0 && detectX >= 0 && detectY >= 0
+                && (equipOn == 0 || (equipX >= 0 && equipY >= 0));
     }
 
     private static Field field(String key) {
@@ -150,16 +141,11 @@ public class Config {
         reactionMs = clamp(reactionMs, 0, 60000);
         resultDelayMs = clamp(resultDelayMs, 0, 600000);
 
-        joyRadiusDp = clamp(joyRadiusDp, 10, 200);
-        routeOn = routeOn == 0 ? 0 : 1;
-        startAtPond = startAtPond == 0 ? 0 : 1;
-        walkAngle = Route.normAngle(walkAngle);
-        backAngle = Route.normAngle(backAngle);
-        walkSec = clamp(walkSec, 1, 50);   // um gesto do Android dura no máximo 60 s
-        backSec = clamp(backSec, 1, 50);
-        fishSec = clamp(fishSec, 10, 86400);
-        pauseSec = clamp(pauseSec, 0, 60);
-        walkJitterPct = clamp(walkJitterPct, 0, 50);
+        equipOn = equipOn == 0 ? 0 : 1;
+        equipTaps = clamp(equipTaps, 1, 10);   // um gesto do Android aceita até 10 toques
+        equipSpacingMs = clamp(equipSpacingMs, 20, 2000);
+        equipPauseMs = clamp(equipPauseMs, 0, 10000);
+        equipEvery = clamp(equipEvery, 1, 1000);
 
         if (placeId <= 0) {
             placeId = DEFAULT_PLACE_ID;

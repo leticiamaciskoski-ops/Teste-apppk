@@ -350,28 +350,15 @@ public class OverlayService extends Service {
         r1.addView(btnTest, l2);
         fishButtons.addView(r1, Ui.params(this, -1, -2, 0, 8, 0, 0));
 
-        LinearLayout r2 = new LinearLayout(this);
-        TextView c1 = Ui.button(this, "Calibrar pesca", Ui.CHIP_OFF, Ui.TEXT, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                calibrate(false);
-            }
-        });
-        TextView c2 = Ui.button(this, "Calibrar joystick", Ui.CHIP_OFF, Ui.TEXT, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                calibrate(true);
-            }
-        });
+        TextView c1 = Ui.button(this, "Calibrar pesca (vara, segurar, toques, sinal)", Ui.CHIP_OFF, Ui.TEXT,
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        calibrate();
+                    }
+                });
         c1.setTextSize(12);
-        c2.setTextSize(12);
-        LinearLayout.LayoutParams m1 = Ui.params(this, 0, -2, 0, 0, 4, 0);
-        m1.weight = 1f;
-        LinearLayout.LayoutParams m2 = Ui.params(this, 0, -2, 4, 0, 0, 0);
-        m2.weight = 1f;
-        r2.addView(c1, m1);
-        r2.addView(c2, m2);
-        fishButtons.addView(r2, Ui.params(this, -1, -2, 0, 6, 0, 0));
+        fishButtons.addView(c1, Ui.params(this, -1, -2, 0, 6, 0, 0));
         fishBox.addView(fishButtons);
 
         btnA11y = Ui.button(this, "Ativar acessibilidade", Ui.WARN, Ui.ON_ACCENT, new View.OnClickListener() {
@@ -430,12 +417,12 @@ public class OverlayService extends Service {
         }, 250);
     }
 
-    private void calibrate(boolean joystickOnly) {
+    private void calibrate() {
         FishService f = FishService.instance;
         if (f == null) {
             return;
         }
-        f.startCalibration(joystickOnly);
+        f.startCalibration();
     }
 
     /** Atualiza a aba de pesca e a cor da bolha (laranja = pescando). */

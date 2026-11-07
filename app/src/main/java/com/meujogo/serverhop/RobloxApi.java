@@ -22,7 +22,7 @@ public final class RobloxApi {
     private RobloxApi() {
     }
 
-    private static final String UA = "Mozilla/5.0 (Linux; Android 13) ServerHop/0.4";
+    private static final String UA = "Mozilla/5.0 (Linux; Android 13) ServerHop/0.5";
 
     public static final class ApiException extends Exception {
         public final int httpCode;

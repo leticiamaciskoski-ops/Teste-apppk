@@ -29,10 +29,10 @@ import java.util.Random;
 /**
  * Motor da pesca automática (serviço de acessibilidade).
  *
- * Rota: ANDAR até a poça (joystick) -> PESCAR por fishSec (segurar, esperar o sinal lendo a cor
- * de um pixel, dar os toques rápidos, repetir) -> ANDAR para sair -> ANDAR de novo até a poça -> ...
+ * Ciclo: PEGAR A VARA no inventário (toques no slot) -> SEGURAR (lançar) -> esperar o sinal lendo a cor
+ * de um pixel -> dar os toques rápidos -> repetir.
  *
- * Usa dispatchGesture (segurar, tocar, arrastar o joystick) e takeScreenshot (ler a cor, Android 11+).
+ * Usa dispatchGesture (pegar a vara, segurar, tocar) e takeScreenshot (ler a cor, Android 11+).
  * A interface fica no painel flutuante (OverlayService); aqui só há a calibração em tela cheia.
  */
 public class FishService extends AccessibilityService {
@@ -58,9 +58,9 @@ public class FishService extends AccessibilityService {
         void onFail(int code);
     }
 
-    private static final int CAL_HOLD = 0;
-    private static final int CAL_TAP = 1;
-    private static final int CAL_JOY = 2;
+    private static final int CAL_EQUIP = 0;
+    private static final int CAL_HOLD = 1;
+    private static final int CAL_TAP = 2;
     private static final int CAL_DETECT = 3;
 
     private final Handler h = new Handler(Looper.getMainLooper());
@@ -75,9 +75,7 @@ public class FishService extends AccessibilityService {
     private int token;          // muda a cada parar/iniciar: callbacks antigos se descartam
     private long waitStart;
     private long bornAt;
-    private Route.Phase phase = Route.Phase.FISH;
-    private long phaseEnd;      // uptime em que a fase termina (Long.MAX_VALUE = sem fim)
-    private int fishRounds;
+    private String step = "";   // o que o ciclo está fazendo agora
     private String testLine = "";
 
     private FrameLayout calibView;
@@ -130,7 +128,7 @@ public class FishService extends AccessibilityService {
         return testing;
     }
 
-    /** Linha de estado: fase atual e tempo restante. */
+    /** Linha de estado: o que o ciclo está fazendo. */
     public String phaseLine() {
         if (testing) {
             return "Modo teste";
@@ -138,11 +136,7 @@ public class FishService extends AccessibilityService {
         if (!running) {
             return "Parado";
         }
-        if (cfg.routeOn == 1 && phaseEnd != Long.MAX_VALUE) {
-            long left = phaseEnd - SystemClock.uptimeMillis();
-            return phase.label + " · restam " + Route.clock(left);
-        }
-        return phase.label;
+        return "Ciclo " + stats.cycles + " · " + step;
     }
 
     public String statsText() {
@@ -160,17 +154,13 @@ public class FishService extends AccessibilityService {
 
     public void start() {
         cfg = ConfigStore.load(this);
-        boolean route = cfg.routeOn == 1;
         if (!cfg.fishCalibrated()) {
-            addLog("Calibre a pesca primeiro (3 pontos).");
-            return;
-        }
-        if (route && !cfg.joystickCalibrated()) {
-            addLog("Calibre o joystick (ou desligue a rota nos ajustes).");
+            addLog("Calibre a pesca primeiro"
+                    + (cfg.equipOn == 1 ? " (vara, segurar, toques e sinal)." : " (segurar, toques e sinal)."));
             return;
         }
         if (covers(cfg.holdX, cfg.holdY) || covers(cfg.tapX, cfg.tapY) || covers(cfg.detectX, cfg.detectY)
-                || (route && covers(cfg.joyX, cfg.joyY))) {
+                || (cfg.equipOn == 1 && covers(cfg.equipX, cfg.equipY))) {
             addLog("O painel cobre um ponto calibrado. Mova o painel ou recolha-o.");
             return;
         }
@@ -178,16 +168,13 @@ public class FishService extends AccessibilityService {
         running = true;
         token++;
         stats.reset();
-        fishRounds = 0;
         long est = TapPlan.estimateWindowMs(cfg.taps, cfg.spacingMs, cfg.tapDurMs,
                 GestureDescription.getMaxStrokeCount(), 60);
         addLog("Iniciado. Toques ~" + est + " ms (jogo: " + cfg.tapWindowMs + ")");
-        if (route) {
-            addLog("Rota: andar " + cfg.walkSec + " s " + Route.compass(cfg.walkAngle) + ", pescar "
-                    + Route.clock(cfg.fishSec * 1000L) + ", sair " + cfg.backSec + " s "
-                    + Route.compass(cfg.backAngle) + ", repetir.");
+        if (cfg.equipOn == 1) {
+            addLog("Pegar a vara: " + cfg.equipTaps + " toques no slot, a cada " + cfg.equipEvery + " ciclo(s).");
         }
-        enterPhase(token, Route.first(route, cfg.startAtPond == 1));
+        startCycle(token);
         tick(token);
     }
 
@@ -232,111 +219,49 @@ public class FishService extends AccessibilityService {
         notifyUi();
     }
 
-    // ------------------------------------------------------------------
-    // Fases da rota
-    // ------------------------------------------------------------------
-
     private boolean alive(int tok) {
         return tok == token && running;
     }
 
-    private void enterPhase(final int tok, Route.Phase p) {
-        if (!alive(tok)) {
-            return;
+    /** Toques no slot da vara no inventário; depois espera ela aparecer na mão. */
+    private void equipRod(final int tok) {
+        step = "pegando a vara";
+        addLog("Pegando a vara: " + cfg.equipTaps + " toques no slot (" + cfg.equipX + "," + cfg.equipY + ")");
+        GestureDescription.Builder b = new GestureDescription.Builder();
+        for (int i = 0; i < cfg.equipTaps; i++) {
+            b.addStroke(new GestureDescription.StrokeDescription(
+                    point(cfg.equipX, cfg.equipY), (long) i * cfg.equipSpacingMs, 30));
         }
-        phase = p;
-        boolean route = cfg.routeOn == 1;
-        switch (p) {
-            case FISH:
-                phaseEnd = route ? SystemClock.uptimeMillis() + cfg.fishSec * 1000L : Long.MAX_VALUE;
-                fishRounds++;
-                addLog(route ? "Pescando por " + Route.clock(cfg.fishSec * 1000L) + " (rodada " + fishRounds + ")"
-                        : "Pescando.");
-                startCycle(tok);
-                break;
-            case WALK_TO:
-                walk(tok, p, cfg.walkAngle, cfg.walkSec);
-                break;
-            default:
-                walk(tok, p, cfg.backAngle, cfg.backSec);
-                break;
-        }
-        notifyUi();
-    }
+        boolean ok = dispatchGesture(b.build(), new GestureResultCallback() {
+            @Override
+            public void onCompleted(GestureDescription d) {
+                afterEquip(tok);
+            }
 
-    /** Anda arrastando o dedo do centro do joystick até a borda e mantendo ali. */
-    private void walk(final int tok, final Route.Phase p, int angle, int sec) {
-        final long ms = Route.jitter(sec * 1000L, cfg.walkJitterPct, rng);
-        phaseEnd = SystemClock.uptimeMillis() + ms + 150;
-        final int radius = Math.round(cfg.joyRadiusDp * getResources().getDisplayMetrics().density);
-        final int[] t = Route.joystickTarget(cfg.joyX, cfg.joyY, radius, angle);
-        addLog(p.label + ": " + Route.compass(angle) + " por " + (ms / 100) / 10.0 + " s");
-
-        Path p1 = new Path();
-        p1.moveTo(cfg.joyX, cfg.joyY);
-        p1.lineTo(t[0], t[1]);
-        final GestureDescription.StrokeDescription s1 =
-                new GestureDescription.StrokeDescription(p1, 0, 150, true);
-        boolean ok = dispatchGesture(new GestureDescription.Builder().addStroke(s1).build(),
-                new GestureResultCallback() {
-                    @Override
-                    public void onCompleted(GestureDescription d) {
-                        if (!alive(tok)) {
-                            return;
-                        }
-                        GestureDescription.StrokeDescription s2 = s1.continueStroke(point(t[0], t[1]), 0, ms, false);
-                        boolean ok2 = dispatchGesture(new GestureDescription.Builder().addStroke(s2).build(),
-                                new GestureResultCallback() {
-                                    @Override
-                                    public void onCompleted(GestureDescription d2) {
-                                        afterWalk(tok, p);
-                                    }
-
-                                    @Override
-                                    public void onCancelled(GestureDescription d2) {
-                                        retryPhase(tok, p, "Caminhada cancelada pelo sistema.");
-                                    }
-                                }, null);
-                        if (!ok2) {
-                            retryPhase(tok, p, "Não foi possível manter o joystick.");
-                        }
-                    }
-
-                    @Override
-                    public void onCancelled(GestureDescription d) {
-                        retryPhase(tok, p, "Caminhada cancelada pelo sistema.");
-                    }
-                }, null);
+            @Override
+            public void onCancelled(GestureDescription d) {
+                stats.cancelled++;
+                addLog("Toques na vara cancelados pelo sistema; seguindo mesmo assim.");
+                afterEquip(tok);
+            }
+        }, null);
         if (!ok) {
-            retryPhase(tok, p, "Não foi possível mexer no joystick (acessibilidade sem gestos?).");
-        }
-    }
-
-    private void afterWalk(final int tok, final Route.Phase p) {
-        if (!alive(tok)) {
-            return;
+            addLog("Não foi possível tocar no slot da vara.");
+            afterEquip(tok);
         }
         notifyUi();
-        h.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                enterPhase(tok, Route.next(p, cfg.routeOn == 1));
-            }
-        }, cfg.pauseSec * 1000L);
     }
 
-    private void retryPhase(final int tok, final Route.Phase p, String why) {
+    private void afterEquip(final int tok) {
         if (!alive(tok)) {
             return;
         }
-        stats.cancelled++;
-        addLog(why + " Tentando de novo.");
         h.postDelayed(new Runnable() {
             @Override
             public void run() {
-                enterPhase(tok, p);
+                beginHold(tok);
             }
-        }, 1500);
+        }, cfg.equipPauseMs);
     }
 
     // ------------------------------------------------------------------
@@ -347,15 +272,22 @@ public class FishService extends AccessibilityService {
         if (!alive(tok)) {
             return;
         }
-        if (cfg.routeOn == 1 && SystemClock.uptimeMillis() >= phaseEnd) {
-            addLog("Tempo de pesca acabou.");
-            enterPhase(tok, Route.next(Route.Phase.FISH, true));
+        stats.cycles++;
+        if (cfg.equipOn == 1 && (stats.cycles - 1) % cfg.equipEvery == 0) {
+            equipRod(tok);
+        } else {
+            beginHold(tok);
+        }
+    }
+
+    private void beginHold(final int tok) {
+        if (!alive(tok)) {
             return;
         }
         int jitter = cfg.holdJitterMs > 0 ? rng.nextInt(2 * cfg.holdJitterMs + 1) - cfg.holdJitterMs : 0;
         long hold = Math.max(50, cfg.holdMs + jitter);
         hold = Math.min(hold, GestureDescription.getMaxGestureDuration());
-        stats.cycles++;
+        step = "lançando";
         addLog("Ciclo " + stats.cycles + ": segurando " + hold + " ms");
 
         GestureDescription g = new GestureDescription.Builder()
@@ -368,6 +300,7 @@ public class FishService extends AccessibilityService {
                     return;
                 }
                 waitStart = SystemClock.uptimeMillis();
+                step = "esperando o peixe";
                 pollSignal(tok);
             }
 
@@ -433,6 +366,7 @@ public class FishService extends AccessibilityService {
     }
 
     private void onSignal(final int tok) {
+        step = "puxando";
         long waited = SystemClock.uptimeMillis() - waitStart;
         stats.recordWait(waited);
         addLog("Sinal detectado após " + waited + " ms de espera.");
@@ -492,6 +426,7 @@ public class FishService extends AccessibilityService {
     }
 
     private void scheduleNext(final int tok, long delayMs) {
+        step = "descansando";
         h.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -612,12 +547,14 @@ public class FishService extends AccessibilityService {
     // Calibração em tela cheia
     // ------------------------------------------------------------------
 
-    /** joystickOnly = só o centro do joystick; senão os 3 pontos da pesca (segurar, tocar, sinal). */
-    public void startCalibration(boolean joystickOnly) {
+    /** Passos: slot da vara (se ligado), segurar, tocar, sinal. */
+    public void startCalibration() {
         stopAll();
         removeCalibration();
         cfg = ConfigStore.load(this);
-        calSteps = joystickOnly ? new int[]{CAL_JOY} : new int[]{CAL_HOLD, CAL_TAP, CAL_DETECT};
+        calSteps = cfg.equipOn == 1
+                ? new int[]{CAL_EQUIP, CAL_HOLD, CAL_TAP, CAL_DETECT}
+                : new int[]{CAL_HOLD, CAL_TAP, CAL_DETECT};
         calIdx = 0;
         calibView = new FrameLayout(this);
         calLabel = new TextView(this);
@@ -661,8 +598,8 @@ public class FishService extends AccessibilityService {
             case CAL_TAP:
                 msg = "Toque no ponto onde o jogo recebe os TOQUES rápidos (puxar o peixe).";
                 break;
-            case CAL_JOY:
-                msg = "Toque no CENTRO do joystick: o ponto da tela onde você põe o dedo para andar.";
+            case CAL_EQUIP:
+                msg = "Toque no SLOT DA VARA no inventário/hotbar (onde você toca para pegar a vara).";
                 break;
             default:
                 msg = "Deixe o jogo chegar na fisgada e toque SOBRE o sinal (ex.: o '!'). "
@@ -683,13 +620,10 @@ public class FishService extends AccessibilityService {
                 cfg.tapX = x;
                 cfg.tapY = y;
                 break;
-            case CAL_JOY:
-                cfg.joyX = x;
-                cfg.joyY = y;
-                saveKeys("joyX", "joyY");
-                removeCalibration();
-                addLog("Joystick calibrado em (" + x + "," + y + ").");
-                return;
+            case CAL_EQUIP:
+                cfg.equipX = x;
+                cfg.equipY = y;
+                break;
             default:
                 removeCalibration(); // tira a camada para ela não aparecer na captura
                 h.postDelayed(new Runnable() {
@@ -714,7 +648,7 @@ public class FishService extends AccessibilityService {
                 cfg.detectY = cy;
                 cfg.detectColor = b.getPixel(cx, cy) | 0xFF000000;
                 b.recycle();
-                saveKeys("holdX", "holdY", "tapX", "tapY", "detectX", "detectY", "detectColor");
+                saveKeys("equipX", "equipY", "holdX", "holdY", "tapX", "tapY", "detectX", "detectY", "detectColor");
                 addLog("Pesca calibrada. Sinal (" + cx + "," + cy + ") cor " + ColorMatch.hex(cfg.detectColor));
                 addLog("Use 'Testar' para conferir a detecção.");
             }
