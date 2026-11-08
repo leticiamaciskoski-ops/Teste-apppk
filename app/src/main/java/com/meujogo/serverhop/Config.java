@@ -46,6 +46,9 @@ public class Config {
     public int maxWaitMs = 15000;
     public int reactionMs = 0;
     public int resultDelayMs = 1800;
+    public int detectMinPct = 15;    // % de pixels da área que precisam virar a cor do sinal (acima do fundo)
+    public int ignoreMs = 800;       // depois de soltar, ignora o sinal por esse tempo (a tela ainda está mudando)
+    public int detectConfirm = 1;    // leituras seguidas que confirmam o sinal (1 = mais rápido)
 
     // ---- pegar a vara no inventário (antes de pescar) ----
     public int equipOn = 1;          // 1 = toca no slot da vara antes de pescar
@@ -60,6 +63,7 @@ public class Config {
             "holdX", "holdY", "tapX", "tapY", "detectX", "detectY", "detectColor",
             "holdMs", "holdJitterMs", "taps", "spacingMs", "tapDurMs", "tapWindowMs",
             "tolerance", "boxRadius", "pollMs", "maxWaitMs", "reactionMs", "resultDelayMs",
+            "detectMinPct", "ignoreMs", "detectConfirm",
             "equipOn", "equipX", "equipY", "equipTaps", "equipSpacingMs", "equipPauseMs", "equipEvery"
     };
 
@@ -140,6 +144,9 @@ public class Config {
         maxWaitMs = clamp(maxWaitMs, 1000, 600000);
         reactionMs = clamp(reactionMs, 0, 60000);
         resultDelayMs = clamp(resultDelayMs, 0, 600000);
+        detectMinPct = clamp(detectMinPct, 1, 100);
+        ignoreMs = clamp(ignoreMs, 0, 60000);
+        detectConfirm = clamp(detectConfirm, 1, 5);
 
         equipOn = equipOn == 0 ? 0 : 1;
         equipTaps = clamp(equipTaps, 1, 10);   // um gesto do Android aceita até 10 toques

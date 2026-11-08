@@ -19,6 +19,7 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -61,7 +62,8 @@ public class FishService extends AccessibilityService {
     private static final int CAL_EQUIP = 0;
     private static final int CAL_HOLD = 1;
     private static final int CAL_TAP = 2;
-    private static final int CAL_DETECT = 3;
+    private static final int CAL_DETECT = 3;  // tocar no ponto onde o sinal aparece
+    private static final int CAL_SIGNAL = 4;  // lançar de verdade e capturar a cor quando o sinal aparecer
 
     private final Handler h = new Handler(Looper.getMainLooper());
     private final Random rng = new Random();
@@ -75,11 +77,16 @@ public class FishService extends AccessibilityService {
     private int token;          // muda a cada parar/iniciar: callbacks antigos se descartam
     private long waitStart;
     private long bornAt;
+    private int baseFrac;       // % da cor do sinal visto SEM o sinal, medido a cada ciclo
+    private int hits;           // leituras seguidas com o sinal
+    private int testBase = 100; // menor % visto no modo teste (o fundo)
     private String step = "";   // o que o ciclo está fazendo agora
     private String testLine = "";
 
     private FrameLayout calibView;
     private TextView calLabel;
+    private WindowManager.LayoutParams calLp;
+    private LinearLayout calBtnView;
     private int[] calSteps;
     private int calIdx;
 
@@ -280,10 +287,45 @@ public class FishService extends AccessibilityService {
         }
     }
 
+    /** Mede o fundo (sem o sinal) e só então segura. Assim o sinal é detectado por mudança, não por cor fixa. */
     private void beginHold(final int tok) {
         if (!alive(tok)) {
             return;
         }
+        step = "medindo o fundo";
+        grab(new BitmapCb() {
+            @Override
+            public void onBitmap(Bitmap b) {
+                if (alive(tok)) {
+                    baseFrac = fraction(b);
+                }
+                b.recycle();
+                afterBase(tok);
+            }
+
+            @Override
+            public void onFail(int code) {
+                baseFrac = 0;
+                afterBase(tok);
+            }
+        });
+    }
+
+    private void afterBase(int tok) {
+        if (!alive(tok)) {
+            return;
+        }
+        if (!ColorMatch.detectable(baseFrac, cfg.detectMinPct)) {
+            addLog("AVISO: " + baseFrac + "% da área já tem a cor do sinal sem ele. Não dá para detectar aqui: "
+                    + "recalibre num ponto mais exclusivo do sinal.");
+        } else if (baseFrac > 0) {
+            addLog("Fundo com " + baseFrac + "% da cor do sinal; o sinal precisa passar de " + (baseFrac + cfg.detectMinPct) + "%.");
+        }
+        doHold(tok);
+    }
+
+    private void doHold(final int tok) {
+        hits = 0;
         int jitter = cfg.holdJitterMs > 0 ? rng.nextInt(2 * cfg.holdJitterMs + 1) - cfg.holdJitterMs : 0;
         long hold = Math.max(50, cfg.holdMs + jitter);
         hold = Math.min(hold, GestureDescription.getMaxGestureDuration());
@@ -331,16 +373,21 @@ public class FishService extends AccessibilityService {
             scheduleNext(tok, cfg.resultDelayMs);
             return;
         }
+        if (waited < cfg.ignoreMs) {
+            laterPoll(tok, Math.min(cfg.pollMs, cfg.ignoreMs - waited + 20));
+            return;
+        }
         grab(new BitmapCb() {
             @Override
             public void onBitmap(Bitmap b) {
                 boolean live = alive(tok);
-                boolean hit = live && bestDiff(b) <= cfg.tolerance;
+                boolean raw = live && ColorMatch.signalHit(fraction(b), baseFrac, cfg.detectMinPct);
                 b.recycle();
                 if (!live) {
                     return;
                 }
-                if (hit) {
+                hits = raw ? hits + 1 : 0;
+                if (hits >= cfg.detectConfirm) {
                     onSignal(tok);
                 } else {
                     laterPoll(tok, cfg.pollMs);
@@ -440,13 +487,27 @@ public class FishService extends AccessibilityService {
     // Leitura de cor
     // ------------------------------------------------------------------
 
-    private int bestDiff(final Bitmap b) {
-        return ColorMatch.bestDiff(new ColorMatch.Pixels() {
+    /** Fator entre pixels da captura e pixels da tela (normalmente 1). */
+    private float scale(int bitmapSize, boolean horizontal) {
+        try {
+            Rect r = wm.getMaximumWindowMetrics().getBounds();
+            int real = horizontal ? r.width() : r.height();
+            return real > 0 ? bitmapSize / (float) real : 1f;
+        } catch (RuntimeException e) {
+            return 1f;
+        }
+    }
+
+    /** % de pixels com a cor do sinal ao redor do ponto de detecção. */
+    private int fraction(final Bitmap b) {
+        int cx = Math.round(cfg.detectX * scale(b.getWidth(), true));
+        int cy = Math.round(cfg.detectY * scale(b.getHeight(), false));
+        return ColorMatch.fraction(new ColorMatch.Pixels() {
             @Override
             public int get(int x, int y) {
                 return b.getPixel(x, y);
             }
-        }, b.getWidth(), b.getHeight(), cfg.detectX, cfg.detectY, cfg.boxRadius, cfg.detectColor);
+        }, b.getWidth(), b.getHeight(), cx, cy, cfg.boxRadius, cfg.detectColor, cfg.tolerance);
     }
 
     /** Captura a tela (Android 11+; o sistema limita a ~3 capturas por segundo). */
@@ -496,7 +557,8 @@ public class FishService extends AccessibilityService {
         stopAll();
         testing = true;
         token++;
-        testLine = "Lendo a cor...";
+        testLine = "Lendo a cor... deixe o sinal APAGADO uns segundos, depois faça o sinal aparecer.";
+        testBase = 100;
         addLog("Modo teste: veja se o sinal vira DETECTADO.");
         testLoop(token);
         notifyUi();
@@ -511,12 +573,16 @@ public class FishService extends AccessibilityService {
             public void onBitmap(Bitmap b) {
                 boolean live = tok == token && testing;
                 if (live) {
-                    int d = bestDiff(b);
-                    int cx = Math.max(0, Math.min(b.getWidth() - 1, cfg.detectX));
-                    int cy = Math.max(0, Math.min(b.getHeight() - 1, cfg.detectY));
-                    testLine = "Pixel " + ColorMatch.hex(b.getPixel(cx, cy)) + " | alvo "
-                            + ColorMatch.hex(cfg.detectColor) + "\nDiferença " + d + " (tol. " + cfg.tolerance + ") -> "
-                            + (d <= cfg.tolerance ? "DETECTADO" : "não detectado");
+                    int f = fraction(b);
+                    testBase = Math.min(testBase, f);
+                    int need = Math.min(100, testBase + cfg.detectMinPct);
+                    int cx = Math.max(0, Math.min(b.getWidth() - 1, Math.round(cfg.detectX * scale(b.getWidth(), true))));
+                    int cy = Math.max(0, Math.min(b.getHeight() - 1, Math.round(cfg.detectY * scale(b.getHeight(), false))));
+                    boolean hit = ColorMatch.signalHit(f, testBase, cfg.detectMinPct);
+                    testLine = "Pixel " + ColorMatch.hex(b.getPixel(cx, cy)) + " | sinal " + ColorMatch.hex(cfg.detectColor)
+                            + "\nCor do sinal na área: " + f + "% (fundo ~" + testBase + "%, precisa " + need + "%)"
+                            + (ColorMatch.detectable(testBase, cfg.detectMinPct) ? "" : "\nSem como detectar: fundo parecido com o sinal")
+                            + "\n-> " + (hit ? "DETECTADO" : "não detectado");
                     notifyUi();
                 }
                 b.recycle();
@@ -553,8 +619,8 @@ public class FishService extends AccessibilityService {
         removeCalibration();
         cfg = ConfigStore.load(this);
         calSteps = cfg.equipOn == 1
-                ? new int[]{CAL_EQUIP, CAL_HOLD, CAL_TAP, CAL_DETECT}
-                : new int[]{CAL_HOLD, CAL_TAP, CAL_DETECT};
+                ? new int[]{CAL_EQUIP, CAL_HOLD, CAL_TAP, CAL_DETECT, CAL_SIGNAL}
+                : new int[]{CAL_HOLD, CAL_TAP, CAL_DETECT, CAL_SIGNAL};
         calIdx = 0;
         calibView = new FrameLayout(this);
         calLabel = new TextView(this);
@@ -573,7 +639,7 @@ public class FishService extends AccessibilityService {
                 return true;
             }
         });
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+        calLp = new WindowManager.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -581,7 +647,7 @@ public class FishService extends AccessibilityService {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
-        wm.addView(calibView, lp);
+        wm.addView(calibView, calLp);
         updateCalLabel();
     }
 
@@ -601,9 +667,12 @@ public class FishService extends AccessibilityService {
             case CAL_EQUIP:
                 msg = "Toque no SLOT DA VARA no inventário/hotbar (onde você toca para pegar a vara).";
                 break;
+            case CAL_DETECT:
+                msg = "Toque no ponto EXATO onde o sinal de fisgada aparece (ex.: o '!'), mesmo que ele ainda não esteja na tela.";
+                break;
             default:
-                msg = "Deixe o jogo chegar na fisgada e toque SOBRE o sinal (ex.: o '!'). "
-                        + "O sinal precisa ficar visível por ~1 s; um pisca-pisca muito rápido não é detectável.";
+                msg = "Agora LANCE a vara normalmente (a tela do jogo está liberada). Quando o sinal aparecer, "
+                        + "toque em CAPTURAR SINAL. Se o sinal for rápido demais, use o botão com a outra mão.";
                 break;
         }
         calLabel.setText(n + msg);
@@ -625,36 +694,93 @@ public class FishService extends AccessibilityService {
                 cfg.equipY = y;
                 break;
             default:
-                removeCalibration(); // tira a camada para ela não aparecer na captura
-                h.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        captureReference(x, y);
-                    }
-                }, 250);
-                return;
+                cfg.detectX = x;
+                cfg.detectY = y;
+                break;
         }
         calIdx++;
         updateCalLabel();
+        if (calSteps[calIdx] == CAL_SIGNAL) {
+            enterSignalStep();
+        }
+    }
+
+    /** Libera os toques para o jogo e mostra só um botão pequeno para capturar a cor do sinal. */
+    private void enterSignalStep() {
+        calLp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        wm.updateViewLayout(calibView, calLp);
+        calBtnView = new LinearLayout(this);
+        calBtnView.setOrientation(LinearLayout.HORIZONTAL);
+        calBtnView.setBackgroundColor(0xEE000000);
+        calBtnView.setPadding(dp(6), dp(6), dp(6), dp(6));
+        TextView cap = signalButton("CAPTURAR SINAL", 0xFF2DD4A8, 0xFF04201A, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                captureReference(cfg.detectX, cfg.detectY);
+            }
+        });
+        TextView cancel = signalButton("Cancelar", 0xFF1B283B, 0xFFFFFFFF, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                removeCalibration();
+                addLog("Calibração cancelada.");
+            }
+        });
+        calBtnView.addView(cap, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f));
+        calBtnView.addView(cancel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // fica longe do ponto do sinal: metade de cima da tela -> botão embaixo, e vice-versa
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                dp(260), ViewGroup.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT);
+        boolean signalIsUp = cfg.detectY < screenH / 2;
+        lp.gravity = (signalIsUp ? Gravity.BOTTOM : Gravity.TOP) | Gravity.END;
+        lp.x = dp(8);
+        lp.y = dp(signalIsUp ? 60 : 110);
+        wm.addView(calBtnView, lp);
+    }
+
+    private TextView signalButton(String label, int bg, int fg, View.OnClickListener l) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextSize(13);
+        t.setTextColor(fg);
+        t.setBackgroundColor(bg);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(6), dp(12), dp(6), dp(12));
+        t.setOnClickListener(l);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.setMargins(dp(3), 0, dp(3), 0);
+        t.setLayoutParams(p);
+        return t;
     }
 
     private void captureReference(final int x, final int y) {
         grab(new BitmapCb() {
             @Override
             public void onBitmap(Bitmap b) {
-                int cx = Math.max(0, Math.min(b.getWidth() - 1, x));
-                int cy = Math.max(0, Math.min(b.getHeight() - 1, y));
-                cfg.detectX = cx;
-                cfg.detectY = cy;
+                int cx = Math.max(0, Math.min(b.getWidth() - 1, Math.round(x * scale(b.getWidth(), true))));
+                int cy = Math.max(0, Math.min(b.getHeight() - 1, Math.round(y * scale(b.getHeight(), false))));
                 cfg.detectColor = b.getPixel(cx, cy) | 0xFF000000;
+                int f = fraction(b);
                 b.recycle();
+                removeCalibration();
                 saveKeys("equipX", "equipY", "holdX", "holdY", "tapX", "tapY", "detectX", "detectY", "detectColor");
-                addLog("Pesca calibrada. Sinal (" + cx + "," + cy + ") cor " + ColorMatch.hex(cfg.detectColor));
-                addLog("Use 'Testar' para conferir a detecção.");
+                addLog("Pesca calibrada. Sinal (" + x + "," + y + ") cor " + ColorMatch.hex(cfg.detectColor)
+                        + " (" + f + "% da área).");
+                if (f < cfg.detectMinPct) {
+                    addLog("AVISO: o sinal ocupa só " + f + "% da área. Diminua o raio ou a % mínima, ou toque no centro do sinal.");
+                }
+                addLog("Use 'Testar': deixe o sinal apagado, depois faça ele aparecer.");
             }
 
             @Override
             public void onFail(int code) {
+                removeCalibration();
                 addLog("Não consegui capturar a tela (código " + code + "). Calibre de novo.");
             }
         });
@@ -673,6 +799,14 @@ public class FishService extends AccessibilityService {
                 // já removido
             }
         }
+        if (calBtnView != null && wm != null) {
+            try {
+                wm.removeView(calBtnView);
+            } catch (RuntimeException ignored) {
+                // já removido
+            }
+        }
+        calBtnView = null;
         calibView = null;
         calLabel = null;
         notifyUi();

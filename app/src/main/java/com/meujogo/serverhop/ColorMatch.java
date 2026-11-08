@@ -39,6 +39,37 @@ public final class ColorMatch {
         return best;
     }
 
+    /**
+     * Percentual (0..100) dos pixels da área (2r+1) x (2r+1) ao redor de (cx, cy) que têm a cor 'ref'
+     * (diferença por canal <= tol). Só conta pixels dentro da imagem.
+     */
+    public static int fraction(Pixels p, int width, int height, int cx, int cy, int r, int ref, int tol) {
+        int total = 0;
+        int match = 0;
+        for (int y = cy - r; y <= cy + r; y++) {
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (x < 0 || y < 0 || x >= width || y >= height) {
+                    continue;
+                }
+                total++;
+                if (maxChannelDiff(p.get(x, y), ref) <= tol) {
+                    match++;
+                }
+            }
+        }
+        return total == 0 ? 0 : (int) Math.round(100.0 * match / total);
+    }
+
+    /** O sinal aparece quando a fração sobe pelo menos minPct acima da fração vista SEM o sinal (base). */
+    public static boolean signalHit(int frac, int baseFrac, int minPct) {
+        return frac > 0 && frac >= baseFrac + minPct;
+    }
+
+    /** Se a base já passa de (100 - minPct), nunca dá para detectar o sinal naquele ponto/cor. */
+    public static boolean detectable(int baseFrac, int minPct) {
+        return baseFrac + minPct <= 100;
+    }
+
     public static String hex(int argb) {
         return String.format("#%06X", argb & 0xFFFFFF);
     }

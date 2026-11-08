@@ -34,11 +34,13 @@ public class MainActivity extends Activity {
             "Toques no slot da vara", "Intervalo entre esses toques (ms)",
             "Espera depois, para a vara aparecer na mão (ms)", "Pegar a vara a cada quantos ciclos"};
     private static final String[] FISH_KEYS = {"holdMs", "holdJitterMs", "taps", "spacingMs", "tapDurMs", "tapWindowMs",
-            "tolerance", "pollMs", "maxWaitMs", "reactionMs", "resultDelayMs"};
+            "tolerance", "boxRadius", "detectMinPct", "ignoreMs", "detectConfirm", "pollMs", "maxWaitMs", "reactionMs", "resultDelayMs"};
     private static final String[] FISH_LABELS = {
             "Segurar para lançar (ms)", "Variação aleatória do segurar (± ms)", "Quantidade de toques",
             "Intervalo entre toques (ms)", "Duração de cada toque (ms)", "Janela do jogo para os toques (ms)",
-            "Tolerância de cor (0-255)", "Intervalo de leitura da tela (ms, mín. 340)",
+            "Tolerância de cor (0-255)", "Raio da área de detecção (px)",
+            "% mínima da área que vira a cor do sinal", "Ignorar o sinal depois de soltar (ms)",
+            "Leituras seguidas para confirmar (1 = mais rápido)", "Intervalo de leitura da tela (ms, mín. 340)",
             "Tempo máximo esperando o sinal (ms)", "Atraso antes dos toques (ms)", "Pausa entre ciclos (ms)"};
 
     private Config cfg;

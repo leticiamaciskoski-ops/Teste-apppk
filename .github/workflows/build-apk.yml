@@ -60,6 +60,6 @@ jobs:
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk server-hop.apk
           gh release create "apk-${{ github.run_number }}" server-hop.apk \
-            --title "Server Hop v0.5 (build ${{ github.run_number }})" \
+            --title "Server Hop v0.6 (build ${{ github.run_number }})" \
             --notes "APK de debug do Server Hop. Instale no Android 11 ou superior." \
             --latest
